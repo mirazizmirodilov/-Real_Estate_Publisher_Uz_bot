@@ -1,8 +1,12 @@
 import asyncio
 import logging
+import os
+
+from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message
+from aiogram.types import Message, Update
+
 from .config import get_settings
 from .models import Listing
 from .ai_parser import parse_listing
@@ -22,10 +26,8 @@ def allowed(uid: int) -> bool:
 
 async def schedule_publish(uid: int):
     await asyncio.sleep(settings.auto_publish_seconds)
-    listing = pending.get(uid)
-    if not listing or not listing.photo_file_ids:
-        return
-    await publish_listing(uid)
+    if pending.get(uid):
+        await publish_listing(uid)
 
 async def publish_listing(uid: int):
     listing = pending.pop(uid, None)
@@ -99,8 +101,31 @@ async def text(message: Message):
     else:
         await message.answer("Endi rasmlarni yuboring.")
 
-async def main():
-    await dp.start_polling(bot)
+app = FastAPI()
+
+@app.get("/")
+async def health():
+    return {"ok": True, "service": "real-estate-publisher-bot"}
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    update = Update.model_validate(await request.json(), context={"bot": bot})
+    await dp.feed_update(bot, update)
+    return {"ok": True}
+
+@app.on_event("startup")
+async def startup():
+    base = os.getenv("WEBHOOK_BASE_URL", "").rstrip("/")
+    if not base:
+        base = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if base:
+        await bot.set_webhook(f"{base}/telegram/webhook")
+
+@app.on_event("shutdown")
+async def shutdown():
+    await bot.delete_webhook()
+    await bot.session.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
