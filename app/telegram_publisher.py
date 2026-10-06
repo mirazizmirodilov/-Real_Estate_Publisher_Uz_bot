@@ -7,7 +7,7 @@ class TelegramPublisher:
         self.channel_id = channel_id
 
     async def publish(self, listing):
-        caption = listing.caption[:1024]
+        caption = listing.render_caption()[:1024]
         if len(listing.photo_file_ids) == 1:
             msg = await self.bot.send_photo(self.channel_id, listing.photo_file_ids[0], caption=caption)
             return {"ok": True, "url": self._message_url(msg)}
