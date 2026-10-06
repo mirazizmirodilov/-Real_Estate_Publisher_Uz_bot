@@ -319,6 +319,43 @@ async def health():
     return {"ok": True, "service": "real-estate-publisher-bot", "status": "live"}
 
 
+@app.get("/debug")
+async def debug():
+    result = {"service": "real-estate-publisher-bot", "ok": True}
+    try:
+        me = await bot.get_me()
+        result["bot"] = {"username": me.username, "id": me.id}
+    except Exception as exc:
+        result["bot_error"] = f"{type(exc).__name__}: {exc}"
+
+    try:
+        info = await bot.get_webhook_info()
+        result["webhook"] = {
+            "url": info.url,
+            "pending_update_count": info.pending_update_count,
+            "last_error_message": info.last_error_message,
+            "last_error_date": info.last_error_date,
+        }
+    except Exception as exc:
+        result["webhook_error"] = f"{type(exc).__name__}: {exc}"
+
+    try:
+        chat = await bot.get_chat(settings.channel_id)
+        me = await bot.get_me()
+        member = await bot.get_chat_member(chat.id, me.id)
+        result["channel"] = {
+            "id": chat.id,
+            "title": chat.title,
+            "username": getattr(chat, "username", None),
+            "bot_status": member.status,
+            "can_post_messages": getattr(member, "can_post_messages", None),
+        }
+    except Exception as exc:
+        result["channel_error"] = f"{type(exc).__name__}: {exc}"
+
+    return result
+
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     update_data = await request.json()
