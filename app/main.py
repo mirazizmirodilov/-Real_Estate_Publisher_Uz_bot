@@ -109,7 +109,10 @@ async def publish_listing(uid: int) -> bool:
         logger.exception("TELEGRAM_PUBLISH_FAILED uid=%s", uid)
         status.append(f"Telegram kanal: ❌ {type(exc).__name__}: {exc}")
         status.append("Draft saqlandi. /publish bilan qayta urinishingiz mumkin.")
-        await bot.send_message(uid, "\n".join(status))
+        try:
+            await bot.send_message(uid, "\n".join(status))
+        except Exception:
+            logger.exception("Could not send Telegram publish error to user")
         return False
 
     if ig_pub:
@@ -151,7 +154,8 @@ async def start(message: Message):
         "Buyruqlar:\n"
         "/publish — hozir joylash\n"
         "/cancel — draftni bekor qilish\n"
-        "/status — bot holatini tekshirish",
+        "/status — bot holatini tekshirish\n"
+        "/diagnose — webhook va kanalni tekshirish",
         parse_mode="HTML",
     )
 
@@ -174,6 +178,48 @@ async def status(message: Message):
         f"📝 Tavsif: {'✅' if draft and (draft.description or draft.caption) else '❌'}\n"
         f"📦 AI: {'✅' if settings.openai_api_key else '⚪ ulanmagan'}"
     )
+
+
+@dp.message(Command("diagnose"))
+async def diagnose(message: Message):
+    uid = message.from_user.id
+    if not allowed(uid):
+        return
+
+    lines = ["🔎 <b>Diagnostika</b>"]
+    try:
+        me = await bot.get_me()
+        lines.append(f"🤖 Bot: @{me.username} (ID {me.id})")
+    except Exception as exc:
+        lines.append(f"🤖 Bot: ❌ {type(exc).__name__}: {exc}")
+
+    try:
+        info = await bot.get_webhook_info()
+        lines.append(f"🌐 Webhook: {'✅' if info.url else '❌'}")
+        lines.append(f"📍 URL: {info.url or 'yo‘q'}")
+        lines.append(f"📥 Pending updates: {info.pending_update_count}")
+        if info.last_error_message:
+            lines.append(f"⚠️ Telegram error: {info.last_error_message}")
+    except Exception as exc:
+        lines.append(f"🌐 Webhook: ❌ {type(exc).__name__}: {exc}")
+
+    try:
+        chat = await bot.get_chat(settings.channel_id)
+        lines.append(f"📢 Kanal: ✅ {chat.title} ({chat.id})")
+        try:
+            me = await bot.get_me()
+            member = await bot.get_chat_member(chat.id, me.id)
+            lines.append(f"👤 Bot kanal statusi: {member.status}")
+            can_post = getattr(member, "can_post_messages", None)
+            if can_post is not None:
+                lines.append(f"✍️ Post qilish huquqi: {'✅' if can_post else '❌'}")
+        except Exception as exc:
+            lines.append(f"👤 Kanal huquqi: ❌ {type(exc).__name__}: {exc}")
+    except Exception as exc:
+        lines.append(f"📢 Kanal: ❌ {type(exc).__name__}: {exc}")
+
+    lines.append(f"🆔 Sizning Telegram ID: <code>{uid}</code>")
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @dp.message(Command("cancel"))
