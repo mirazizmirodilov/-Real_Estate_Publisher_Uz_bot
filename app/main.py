@@ -33,9 +33,11 @@ def reschedule(uid: int):
     publish_tasks[uid] = asyncio.create_task(schedule_publish(uid))
 
 async def schedule_publish(uid: int):
+    logging.info("AUTO_PUBLISH_WAIT uid=%s seconds=%s", uid, settings.auto_publish_seconds)
     try:
         await asyncio.sleep(settings.auto_publish_seconds)
         if pending.get(uid):
+            logging.info("AUTO_PUBLISH_TRIGGER uid=%s photos=%s", uid, len(pending[uid].photo_file_ids))
             await publish_listing(uid)
     except asyncio.CancelledError:
         pass
@@ -43,6 +45,7 @@ async def schedule_publish(uid: int):
         publish_tasks.pop(uid, None)
 
 async def publish_listing(uid: int):
+    logging.info("PUBLISH_START uid=%s", uid)
     listing = pending.pop(uid, None)
     if not listing:
         return
@@ -52,6 +55,7 @@ async def publish_listing(uid: int):
 
     status = ["🚀 E'lon joylanmoqda..."]
     try:
+        logging.info("TELEGRAM_PUBLISH channel=%s photos=%s", settings.channel_id, len(listing.photo_file_ids))
         r = await tg_pub.publish(listing)
         status.append(f"Telegram kanal: {'✅' if r['ok'] else '❌'} {r.get('url') or ''}".strip())
     except Exception as e:
@@ -92,12 +96,24 @@ async def cancel(message: Message):
         task.cancel()
     await message.answer("🗑 Joriy e'lon bekor qilindi.")
 
+@dp.message(Command("publish"))
+async def manual_publish(message: Message):
+    uid = message.from_user.id
+    if not allowed(uid):
+        return
+    if not pending.get(uid) or not pending[uid].photo_file_ids:
+        await message.answer("❌ Hali e'lon uchun rasm yo'q.")
+        return
+    await message.answer("🚀 Majburiy publish boshlandi...")
+    await publish_listing(uid)
+
 @dp.message(F.photo)
 async def photo(message: Message):
     uid = message.from_user.id
     if not allowed(uid):
         return
 
+    logging.info("PHOTO_RECEIVED uid=%s", uid)
     item = pending.setdefault(uid, Listing(user_id=uid))
     item.photo_file_ids.append(message.photo[-1].file_id)
 
@@ -124,6 +140,7 @@ async def text(message: Message):
     if not allowed(uid):
         return
 
+    logging.info("TEXT_RECEIVED uid=%s chars=%s", uid, len(message.text or ""))
     item = pending.setdefault(uid, Listing(user_id=uid))
     item.caption = message.text
 
